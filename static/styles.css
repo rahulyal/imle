@@ -1,0 +1,192 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Animation for content transitions */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+.animate-fade-out {
+  animation: fadeOut 0.5s ease-out forwards;
+}
+
+/* Math expression animations */
+@keyframes highlightMath {
+  0% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgba(255, 255, 0, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.math.highlight {
+  animation: highlightMath 2s ease-in-out;
+}
+
+/* Chart animations */
+@keyframes chartGrow {
+  from {
+    opacity: 0;
+    transform: scaleY(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+.chart-animate {
+  transform-origin: bottom;
+  animation: chartGrow 1.5s ease-out forwards;
+}
+
+/* Animated timeline indicator */
+.timeline-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background-color: #3b82f6;
+  transition: width 0.1s linear;
+}
+
+/* Step by step animation for derivatives and other sequences */
+.step-by-step .math {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+}
+
+.step-by-step.active .math {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.step-by-step.active .math:nth-child(2) {
+  transition-delay: 0.5s;
+}
+
+.step-by-step.active .math:nth-child(3) {
+  transition-delay: 1s;
+}
+
+.step-by-step.active .math:nth-child(4) {
+  transition-delay: 1.5s;
+}
+
+.step-by-step.active .math:nth-child(5) {
+  transition-delay: 2s;
+}
+
+/* Animated elements for interaction */
+.animated-element {
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease,
+    background-color 0.3s ease;
+}
+
+.animated-element:hover {
+  transform: scale(1.05);
+  cursor: pointer;
+}
+
+.animated-element.playing {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+/* Interactive question marker animation */
+.question-marker {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  background-color: rgba(59, 130, 246, 0.8);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transform: scale(0);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.question-marker.visible {
+  transform: scale(1);
+}
+
+.question-marker:hover {
+  transform: scale(1.2);
+}
+
+/* Custom scrollbar for the learning environment */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.5) rgba(226, 232, 240, 0.5);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(226, 232, 240, 0.5);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(59, 130, 246, 0.5);
+  border-radius: 10px;
+}
+
+/* Mobile-friendly adjustments */
+@media (max-width: 640px) {
+  .mobile-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .question-input {
+    width: 100%;
+  }
+}
