@@ -1,27 +1,67 @@
-// islands/LessonPlayer.tsx
+// islands/EnhancedLessonPlayer.tsx
 import { useEffect, useRef, useState } from "preact/hooks";
+import { EnhancedStep } from "../types/animation.ts";
+import { useGSAPAnimation } from "../hooks/useGSAPAnimation.ts";
 import { Lesson } from "../types/lesson.ts";
+import { renderToString } from "katex";
 
-export default function LessonPlayer({
+// Extend the Lesson interface to use EnhancedStep
+interface EnhancedLesson extends Lesson {
+  steps: EnhancedStep[];
+}
+
+interface ChartInstance {
+  destroy: () => void;
+}
+
+interface ChartContext {
+  dataIndex: number;
+}
+
+interface GlobalChartType {
+  Chart: new (
+    ctx: CanvasRenderingContext2D,
+    config: unknown,
+  ) => ChartInstance;
+}
+
+// Add a helper to check if Chart.js is loaded
+const isChartJsLoaded = () => {
+  return typeof globalThis !== "undefined" && "Chart" in globalThis;
+};
+
+export default function EnhancedLessonPlayer({
   initialLesson,
   lessonId,
 }: {
-  initialLesson?: Lesson;
+  initialLesson?: EnhancedLesson;
   lessonId?: string;
 }) {
   // State
-  const [lesson, setLesson] = useState<Lesson | null>(initialLesson || null);
+  const [lesson, setLesson] = useState<EnhancedLesson | null>(
+    initialLesson || null,
+  );
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [userQuestion, setUserQuestion] = useState("");
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
   const [aiResponse, setAiResponse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+
+  // Add Manim-style dark mode state
+  const [manimDarkMode, setManimDarkMode] = useState(false);
 
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRefs = useRef<Map<string, any>>(new Map());
+  const chartRefs = useRef<Map<string, ChartInstance>>(new Map());
   const timeoutRef = useRef<number | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const timelineRef = useRef<gsap.core.Timeline | null>(null);
+  const chartJsLoadedRef = useRef(false);
+
+  // Current step
+  const currentStep = lesson?.steps[currentStepIndex];
 
   // Load lesson data if not provided
   useEffect(() => {
@@ -30,84 +70,190 @@ export default function LessonPlayer({
     }
   }, [lessonId]);
 
-  // Timer for auto-advancing steps when playing
+  // Use our GSAP animation hook
+  const { seek, restart } = useGSAPAnimation({
+    isPlaying,
+    currentStep,
+    containerRef,
+    onComplete: () => {
+      if (currentStepIndex < (lesson?.steps.length || 0) - 1) {
+        handleNext();
+      } else {
+        setIsPlaying(false);
+      }
+    },
+  });
+
+  // Timer for tracking progress and auto-advancing steps when playing
   useEffect(() => {
+    // Clear any existing timers
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
 
-    if (isPlaying && lesson?.steps[currentStepIndex]) {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    if (isPlaying && currentStep) {
+      // Start interval to update progress
+      intervalRef.current = setInterval(() => {
+        setTimeElapsed((prev) => {
+          const newTime = prev + 100;
+          // Update animation progress
+          seek(newTime);
+          return newTime;
+        });
+      }, 100) as unknown as number;
+
+      // Set timeout for auto-advancing to next step
       timeoutRef.current = setTimeout(() => {
         if (currentStepIndex < (lesson?.steps.length || 0) - 1) {
           setCurrentStepIndex(currentStepIndex + 1);
+          setTimeElapsed(0);
         } else {
           setIsPlaying(false);
         }
-      }, lesson.steps[currentStepIndex].duration || 5000);
+      }, currentStep.duration) as unknown as number;
     }
 
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, currentStepIndex, lesson]);
+  }, [isPlaying, currentStepIndex, lesson, seek]);
 
   // Process math expressions and render charts when step changes
   useEffect(() => {
     if (!lesson || !containerRef.current) return;
 
-    // Clean up old charts
-    chartRefs.current.forEach((chart) => chart.destroy?.());
+    // Clear previous animations to prevent interference
+    if (timelineRef.current) {
+      timelineRef.current.kill();
+    }
+
+    // Clean up old charts before updating DOM
+    chartRefs.current.forEach((chart) => {
+      if (chart && typeof chart.destroy === "function") {
+        chart.destroy();
+      }
+    });
     chartRefs.current.clear();
 
-    // Wait for DOM to update with the new content
-    setTimeout(() => {
-      if (!containerRef.current) return;
+    // Reset animation progress
+    setTimeElapsed(0);
 
+    // First render the content without animation
+    if (containerRef.current) {
       // Process math expressions with KaTeX
-      if (typeof window !== "undefined" && window.katex) {
-        const mathElements = containerRef.current.querySelectorAll(".math");
-        mathElements.forEach((elem) => {
-          try {
-            window.katex.render(elem.textContent || "", elem as HTMLElement, {
-              throwOnError: false,
-              displayMode: elem.classList.contains("display-math"),
-            });
-          } catch (e) {
-            console.error("Math rendering error:", e);
-          }
-        });
+      const mathElements = containerRef.current.querySelectorAll(".math");
+      mathElements.forEach((elem) => {
+        try {
+          const mathContent = elem.textContent || "";
+          const isDisplayMode = elem.classList.contains("display-math");
+          const renderedMath = renderToString(mathContent, {
+            throwOnError: false,
+            displayMode: isDisplayMode,
+            output: "html",
+          });
+          // Update the element with rendered math
+          elem.innerHTML = renderedMath;
+        } catch (e) {
+          console.error("Math rendering error:", e);
+        }
+      });
+    }
+
+    // Function to create charts once Chart.js is loaded
+    const createCharts = () => {
+      if (!containerRef.current || !currentStep?.charts || !isChartJsLoaded()) {
+        return;
       }
 
-      // Process charts with Chart.js
-      const currentStep = lesson.steps[currentStepIndex];
-      if (
-        currentStep?.charts && typeof window !== "undefined" && window.Chart
-      ) {
-        currentStep.charts.forEach((chart) => {
-          const canvas = document.getElementById(chart.id) as HTMLCanvasElement;
-          if (canvas) {
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              const newChart = new window.Chart(ctx, {
-                type: chart.type,
-                data: chart.data,
-                options: chart.options,
-              });
-              chartRefs.current.set(chart.id, newChart);
-            }
+      currentStep.charts.forEach((chart) => {
+        const canvas = containerRef.current?.querySelector(
+          `#${chart.id}`,
+        ) as HTMLCanvasElement;
+        if (!canvas) return;
+
+        // First clear any existing chart instance using this canvas
+        chartRefs.current.forEach((oldChart, id) => {
+          if (id === chart.id && oldChart?.destroy) {
+            oldChart.destroy();
+            chartRefs.current.delete(id);
           }
         });
-      }
 
-      // Add an "appearing" animation to the step content
-      const contentElement = containerRef.current.querySelector(
-        ".step-content",
-      );
-      if (contentElement) {
-        contentElement.classList.add("animate-fade-in");
-      }
-    }, 0);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        try {
+          const chartObj = new globalThis.Chart(ctx, {
+            type: chart.type,
+            data: chart.data,
+            options: {
+              ...chart.options,
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: {
+                duration: 1500,
+                easing: "easeOutQuart",
+                delay: (context: ChartContext) => context.dataIndex * 150,
+              },
+              elements: {
+                point: {
+                  radius: 4,
+                  hoverRadius: 6,
+                  borderWidth: 2,
+                },
+                line: {
+                  tension: 0.4,
+                  borderWidth: 3,
+                  fill: false,
+                },
+              },
+              plugins: {
+                legend: {
+                  display: true,
+                  position: "top",
+                },
+                tooltip: {
+                  enabled: true,
+                },
+              },
+            },
+          });
+          chartRefs.current.set(chart.id, chartObj);
+        } catch (e) {
+          console.error("Error creating chart:", e);
+        }
+      });
+    };
+
+    // Check if Chart.js is already loaded
+    if (isChartJsLoaded()) {
+      createCharts();
+      chartJsLoadedRef.current = true;
+    } else {
+      // Wait for Chart.js to load
+      const checkChartJs = setInterval(() => {
+        if (isChartJsLoaded()) {
+          clearInterval(checkChartJs);
+          createCharts();
+          chartJsLoadedRef.current = true;
+        }
+      }, 100);
+
+      // Clean up interval
+      return () => clearInterval(checkChartJs);
+    }
+
+    // If we're playing, trigger GSAP animation AFTER content is fully rendered
+    if (isPlaying) {
+      restart();
+    }
   }, [currentStepIndex, lesson]);
 
   // Fetch lesson data
@@ -117,7 +263,7 @@ export default function LessonPlayer({
       const response = await fetch(`/api/lessons/${id}`);
       if (!response.ok) throw new Error("Failed to fetch lesson");
       const data = await response.json();
-      setLesson(data);
+      setLesson(data as EnhancedLesson);
     } catch (error) {
       console.error("Error fetching lesson:", error);
     } finally {
@@ -131,6 +277,7 @@ export default function LessonPlayer({
 
     setIsLoading(true);
     setIsAskingQuestion(true);
+    setIsPlaying(false); // Pause playback while asking a question
 
     try {
       const response = await fetch("/api/ask", {
@@ -168,46 +315,30 @@ export default function LessonPlayer({
   // Navigation controls
   const handlePlay = () => {
     setIsPlaying(true);
-
-    // Add animation to indicate playback
-    if (containerRef.current) {
-      const elements = containerRef.current.querySelectorAll(
-        ".animated-element",
-      );
-      elements.forEach((elem) => {
-        elem.classList.add("playing");
-      });
-    }
   };
 
   const handlePause = () => {
     setIsPlaying(false);
-
-    // Remove animation when paused
-    if (containerRef.current) {
-      const elements = containerRef.current.querySelectorAll(
-        ".animated-element",
-      );
-      elements.forEach((elem) => {
-        elem.classList.remove("playing");
-      });
-    }
   };
 
   const handlePrev = () => {
     if (currentStepIndex > 0) {
       setCurrentStepIndex(currentStepIndex - 1);
+      setTimeElapsed(0);
     }
   };
 
   const handleNext = () => {
     if (lesson && currentStepIndex < lesson.steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
+      setTimeElapsed(0);
     }
   };
 
-  // Get current step content
-  const currentStep = lesson?.steps[currentStepIndex];
+  // Calculate progress percentage for the current step
+  const progressPercentage = currentStep
+    ? Math.min(100, (timeElapsed / currentStep.duration) * 100)
+    : 0;
 
   // Loading state
   if (isLoading && !lesson) {
@@ -237,21 +368,57 @@ export default function LessonPlayer({
         style={{ height: isAskingQuestion ? "70vh" : "60vh" }}
       >
         {/* Current step content */}
-        <div className="p-6 h-full overflow-auto">
+        <div className="p-6 h-full overflow-auto custom-scrollbar">
           {currentStep && (
-            <div className="step-content">
+            <div
+              className={`step-content ${
+                manimDarkMode ? "manim-dark-mode" : ""
+              }`}
+            >
               <h2 className="text-2xl font-bold mb-4">{currentStep.title}</h2>
-              <div dangerouslySetInnerHTML={{ __html: currentStep.content }} />
+              <div
+                className="math-content"
+                ref={(el) => {
+                  if (el) {
+                    // Use a DocumentFragment for better performance
+                    const fragment = document.createDocumentFragment();
+                    const temp = document.createElement("div");
+                    temp.innerHTML = currentStep.content;
+                    while (temp.firstChild) {
+                      fragment.appendChild(temp.firstChild);
+                    }
+                    el.innerHTML = "";
+                    el.appendChild(fragment);
+                  }
+                }}
+              />
 
               {/* Chart canvases */}
               {currentStep.charts?.map((chart) => (
-                <div key={chart.id} className="my-4">
+                <div
+                  key={chart.id}
+                  className="my-4 chart-container"
+                  ref={(el) => {
+                    if (el) {
+                      // Add visible class after a brief delay for smooth animation
+                      requestAnimationFrame(() => {
+                        el.classList.add("visible");
+                      });
+                    }
+                  }}
+                >
                   <canvas id={chart.id} width="400" height="200"></canvas>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* Progress bar with improved styling */}
+        <div
+          className="timeline-indicator"
+          style={{ width: `${progressPercentage}%` }}
+        />
 
         {/* Question interface overlay */}
         {isAskingQuestion && (
@@ -267,7 +434,9 @@ export default function LessonPlayer({
                   <h3 className="text-xl font-semibold mb-2">Answer</h3>
                   <div
                     className="bg-blue-50 p-4 rounded border border-blue-100"
-                    dangerouslySetInnerHTML={{ __html: aiResponse }}
+                    ref={(el) => {
+                      if (el) el.innerHTML = aiResponse;
+                    }}
                   />
                 </div>
               )
@@ -280,6 +449,7 @@ export default function LessonPlayer({
               )}
 
             <button
+              type="button"
               className="mt-6 px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 transition"
               onClick={handleCloseQuestion}
             >
@@ -295,6 +465,7 @@ export default function LessonPlayer({
           {/* Playback controls */}
           <div className="flex items-center space-x-4">
             <button
+              type="button"
               className="focus:outline-none"
               onClick={handlePrev}
               disabled={currentStepIndex === 0}
@@ -317,7 +488,11 @@ export default function LessonPlayer({
 
             {isPlaying
               ? (
-                <button className="focus:outline-none" onClick={handlePause}>
+                <button
+                  type="button"
+                  className="focus:outline-none"
+                  onClick={handlePause}
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="24"
@@ -335,7 +510,11 @@ export default function LessonPlayer({
                 </button>
               )
               : (
-                <button className="focus:outline-none" onClick={handlePlay}>
+                <button
+                  type="button"
+                  className="focus:outline-none"
+                  onClick={handlePlay}
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="24"
@@ -353,6 +532,7 @@ export default function LessonPlayer({
               )}
 
             <button
+              type="button"
               className="focus:outline-none"
               onClick={handleNext}
               disabled={!lesson || currentStepIndex === lesson.steps.length - 1}
@@ -373,6 +553,20 @@ export default function LessonPlayer({
               </svg>
             </button>
 
+            {/* Manim dark mode toggle */}
+            <button
+              type="button"
+              className={`ml-4 px-2 py-1 text-xs rounded transition ${
+                manimDarkMode
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-600 text-gray-300"
+              }`}
+              onClick={() => setManimDarkMode(!manimDarkMode)}
+              title="Toggle Manim-style dark mode"
+            >
+              Manim Mode
+            </button>
+
             {/* Progress indicator */}
             <div className="text-sm ml-4">
               Step {currentStepIndex + 1} of {lesson.steps.length}
@@ -391,6 +585,7 @@ export default function LessonPlayer({
                 className="bg-gray-700 text-white px-3 py-2 rounded-l focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
               />
               <button
+                type="button"
                 className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-r focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                 onClick={handleAskQuestion}
                 disabled={!userQuestion.trim()}
@@ -403,4 +598,21 @@ export default function LessonPlayer({
       </div>
     </div>
   );
+}
+
+// Add this to global.d.ts
+declare global {
+  interface Window {
+    katex: {
+      render: (
+        content: string,
+        element: HTMLElement,
+        options: { throwOnError: boolean; displayMode: boolean },
+      ) => void;
+    };
+  }
+
+  var Chart: {
+    new (ctx: CanvasRenderingContext2D, config: unknown): ChartInstance;
+  };
 }

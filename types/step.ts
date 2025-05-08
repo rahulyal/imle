@@ -1,10 +1,13 @@
+import { AnimationSequence as Animation } from "./animation.ts";
+
 export interface Step {
   id: string;
   title: string;
   content: string;
   duration: number;
   charts?: Chart[];
-  animations?: Animation[]; // New animation sequence property
+  animations?: Animation[];
+  [key: string]: unknown; // Add index signature to allow any string key
 }
 
 export interface Chart {
@@ -20,5 +23,5 @@ export interface Chart {
       borderWidth?: number;
     }[];
   };
-  options?: any;
+  options?: Record<string, unknown>;
 }

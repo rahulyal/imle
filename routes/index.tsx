@@ -1,5 +1,6 @@
 // routes/index.tsx
 import { Head } from "$fresh/runtime.ts";
+import EnhancedLessonPlayer from "../islands/EnhancedLessonPlayer.tsx";
 import LessonPlayer from "../islands/LessonPlayer.tsx";
 
 export default function Home() {
@@ -26,6 +27,7 @@ export default function Home() {
 
         <div class="mb-8">
           <LessonPlayer lessonId="intro-calculus" />
+          <EnhancedLessonPlayer lessonId="intro-calculus" />
         </div>
 
         <div class="bg-white rounded-lg shadow-md p-6 mb-8">
